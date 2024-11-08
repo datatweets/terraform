@@ -20,7 +20,6 @@ resource "aws_subnet" "main" {
   }
 }
 
-
 # Create Internet Gateway
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
@@ -50,7 +49,6 @@ resource "aws_route_table_association" "a" {
   subnet_id      = aws_subnet.main[count.index].id
   route_table_id = aws_route_table.main.id
 }
-
 
 # Security Group for EC2 Instance
 resource "aws_security_group" "web_sg" {
@@ -106,6 +104,17 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
+# Data Source for Latest Ubuntu AMI
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
+  }
+}
+
 # EC2 Instance
 resource "aws_instance" "web" {
   ami                         = data.aws_ami.ubuntu.id
@@ -123,27 +132,44 @@ resource "aws_instance" "web" {
 
               # Create a simple PHP script
               echo "<?php
+              \$conn = new mysqli('${aws_db_instance.main.address}', '${var.db_username}', '${var.db_password}', 'contacts');
+              if (\$conn->connect_error) {
+                  die('Connection failed: ' . \$conn->connect_error);
+              }
+
               if (\$_SERVER['REQUEST_METHOD'] == 'POST') {
-                  \$conn = new mysqli('${aws_db_instance.main.address}', '${var.db_username}', '${var.db_password}', 'contacts');
-                  if (\$conn->connect_error) {
-                      die('Connection failed: ' . \$conn->connect_error);
-                  }
                   \$name = \$_POST['name'];
                   \$email = \$_POST['email'];
                   \$sql = \"INSERT INTO contacts (name, email) VALUES ('\$name', '\$email')\";
                   if (\$conn->query(\$sql) === TRUE) {
-                      echo 'New record created successfully';
+                      echo 'New record created successfully<br>';
                   } else {
                       echo 'Error: ' . \$sql . '<br>' . \$conn->error;
                   }
-                  \$conn->close();
-              } else {
-                  echo '<form method=\"POST\">
-                          Name: <input type=\"text\" name=\"name\"><br>
-                          Email: <input type=\"email\" name=\"email\"><br>
-                          <input type=\"submit\" value=\"Submit\">
-                        </form>';
               }
+
+              echo '<form method=\"POST\">
+                      Name: <input type=\"text\" name=\"name\"><br>
+                      Email: <input type=\"email\" name=\"email\"><br>
+                      <input type=\"submit\" value=\"Submit\">
+                    </form>';
+
+              echo '<br><a href=\"?action=view\">View Contacts</a>';
+
+              if (isset(\$_GET['action']) && \$_GET['action'] == 'view') {
+                  \$result = \$conn->query(\"SELECT * FROM contacts\");
+                  if (\$result->num_rows > 0) {
+                      echo '<table border=\"1\"><tr><th>ID</th><th>Name</th><th>Email</th></tr>';
+                      while(\$row = \$result->fetch_assoc()) {
+                          echo '<tr><td>'.\$row['id'].'</td><td>'.\$row['name'].'</td><td>'.\$row['email'].'</td></tr>';
+                      }
+                      echo '</table>';
+                  } else {
+                      echo 'No contacts found.';
+                  }
+              }
+
+              \$conn->close();
               ?>" | sudo tee /var/www/html/index.php
 
               # Create the contacts database and table
@@ -157,14 +183,13 @@ resource "aws_instance" "web" {
   }
 }
 
-# Data Source for Latest Ubuntu AMI
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
+# RDS Subnet Group
+resource "aws_db_subnet_group" "main" {
+  name       = "main-subnet-group"
+  subnet_ids = aws_subnet.main[*].id
 
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
+  tags = {
+    Name = "main-subnet-group"
   }
 }
 
@@ -186,15 +211,5 @@ resource "aws_db_instance" "main" {
 
   tags = {
     Name = "rds-instance"
-  }
-}
-
-# RDS Subnet Group
-resource "aws_db_subnet_group" "main" {
-  name       = "main-subnet-group"
-  subnet_ids = aws_subnet.main[*].id
-
-  tags = {
-    Name = "main-subnet-group"
   }
 }
