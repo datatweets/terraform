@@ -50,21 +50,13 @@ resource "aws_route_table_association" "a" {
 # Security Group for EC2 Instance
 resource "aws_security_group" "web_sg" {
   name        = "web-sg"
-  description = "Allow HTTP and SSH"
+  description = "Allow HTTP"
   vpc_id      = aws_vpc.main.id
 
   ingress {
     description = "Allow HTTP"
     from_port   = 80
     to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "Allow SSH"
-    from_port   = 22
-    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -116,7 +108,6 @@ resource "aws_instance" "web" {
   subnet_id                   = aws_subnet.main.id
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
   associate_public_ip_address = true
-  key_name                    = aws_key_pair.deployer.key_name
 
   user_data = <<-EOF
               #!/bin/bash
@@ -150,6 +141,10 @@ resource "aws_instance" "web" {
               }
               ?>" | sudo tee /var/www/html/index.php
 
+              # Create the contacts database and table
+              sudo apt-get install -y mysql-client
+              mysql -h ${aws_db_instance.main.address} -u ${var.db_username} -p${var.db_password} -e "CREATE DATABASE IF NOT EXISTS contacts; USE contacts; CREATE TABLE IF NOT EXISTS contacts (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), email VARCHAR(255));"
+
               EOF
 
   tags = {
@@ -168,26 +163,21 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# Key Pair
-resource "aws_key_pair" "deployer" {
-  key_name   = "deployer-key"
-  public_key = file("~/.ssh/id_rsa.pub")
-}
-
 # RDS MySQL Database
 resource "aws_db_instance" "main" {
-  allocated_storage    = 20
-  engine               = "mysql"
-  engine_version       = "8.0"
-  instance_class       = "db.t3.micro"
-  name                 = "contacts"
-  username             = var.db_username
-  password             = var.db_password
-  parameter_group_name = "default.mysql8.0"
-  skip_final_snapshot  = true
-  publicly_accessible  = false
+  allocated_storage      = 20
+  storage_type           = "gp2"
+  engine                 = "mysql"
+  engine_version         = "8.0"
+  instance_class         = "db.t3.micro"
+  name                   = "contacts"
+  username               = var.db_username
+  password               = var.db_password
+  parameter_group_name   = "default.mysql8.0"
+  skip_final_snapshot    = true
+  publicly_accessible    = false
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
-  db_subnet_group_name = aws_db_subnet_group.main.name
+  db_subnet_group_name   = aws_db_subnet_group.main.name
 
   tags = {
     Name = "rds-instance"
