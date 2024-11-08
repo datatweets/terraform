@@ -16,11 +16,6 @@ variable "db_username" {
   default     = "admin"
 }
 
-variable "db_password" {
-  description = "Password for the RDS database."
-  type        = string
-  sensitive   = true
-}
 
 variable "vpc_cidr" {
   description = "CIDR block for the VPC."
