@@ -7,16 +7,19 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Create Subnet
+# Create Subnets
 resource "aws_subnet" "main" {
+  count                   = length(var.availability_zones)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.subnet_cidr
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
+  availability_zone       = var.availability_zones[count.index]
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "main-subnet"
+    Name = "main-subnet-${count.index}"
   }
 }
+
 
 # Create Internet Gateway
 resource "aws_internet_gateway" "gw" {
@@ -41,11 +44,13 @@ resource "aws_route_table" "main" {
   }
 }
 
-# Associate Route Table with Subnet
+# Associate Route Table with Subnets
 resource "aws_route_table_association" "a" {
-  subnet_id      = aws_subnet.main.id
+  count          = length(aws_subnet.main)
+  subnet_id      = aws_subnet.main[count.index].id
   route_table_id = aws_route_table.main.id
 }
+
 
 # Security Group for EC2 Instance
 resource "aws_security_group" "web_sg" {
@@ -105,7 +110,7 @@ resource "aws_security_group" "rds_sg" {
 resource "aws_instance" "web" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.main.id
+  subnet_id                   = aws_subnet.main[0].id
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
   associate_public_ip_address = true
 
@@ -187,7 +192,7 @@ resource "aws_db_instance" "main" {
 # RDS Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "main-subnet-group"
-  subnet_ids = [aws_subnet.main.id]
+  subnet_ids = aws_subnet.main[*].id
 
   tags = {
     Name = "main-subnet-group"
